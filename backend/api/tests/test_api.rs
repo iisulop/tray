@@ -9,7 +9,7 @@ use axum::{body::Body, http::Request};
 
 use http::StatusCode;
 
-use api::{db_connect, router};
+use api::{db_connect, router, types::Id};
 
 use api::types::{AppState, CandidatePost, CandidateResponse, PollPost, PollResponse};
 
@@ -180,6 +180,23 @@ async fn create_candidate(addr: &SocketAddr, candidate: CandidatePost) -> Candid
     serde_json::from_str::<CandidateResponse>(from_utf8(&body[..]).unwrap()).unwrap()
 }
 
+async fn get_candidate(addr: &SocketAddr, candidate_id: Id) -> CandidateResponse {
+    let client = hyper::Client::new();
+    let response = client
+        .request(
+            Request::builder()
+                .method(http::Method::GET)
+                .uri(format!("http://{addr}/candidate/{}", candidate_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
+    dbg!(&body);
+    serde_json::from_str::<CandidateResponse>(from_utf8(&body[..]).unwrap()).unwrap()
+}
+
 #[tokio::test]
 async fn test_vote() {
     let addr = serve().await;
@@ -194,7 +211,7 @@ async fn test_vote() {
     println!("Voting...");
     dbg!(&candidate);
     let client = hyper::client::Client::new();
-    let response = client
+    let vote_response = client
         .request(
             Request::builder()
                 .method(http::Method::GET)
@@ -204,10 +221,17 @@ async fn test_vote() {
         )
         .await
         .unwrap();
-    let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
-    let body = from_utf8(&body[..]);
-    dbg!(&body);
 
-    //dbg!(&response);
-    //assert_eq!(response.status(), StatusCode::CREATED);
+    dbg!(&vote_response);
+    assert_eq!(vote_response.status(), StatusCode::OK);
+
+    let body = hyper::body::to_bytes(vote_response.into_body())
+        .await
+        .unwrap();
+    let body = from_utf8(&body[..]).unwrap();
+    dbg!(body);
+
+    let candidate_after = get_candidate(&addr, candidate.id).await;
+    dbg!(&candidate_after);
+    assert_eq!(candidate_after.num_votes, 1);
 }

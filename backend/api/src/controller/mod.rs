@@ -4,7 +4,7 @@ use axum::extract::{ConnectInfo, Json, Path, State};
 use axum::http::StatusCode;
 use chrono::prelude::*;
 use entity::{candidate, poll, vote};
-use sea_orm::{ActiveModelTrait, EntityTrait, Set};
+use sea_orm::{ActiveModelTrait, DbConn, EntityTrait, Set};
 use tracing::info;
 
 use crate::types::{
@@ -82,24 +82,48 @@ pub async fn post_candidate(
     ))
 }
 
+async fn construct_candidate(
+    conn: &DbConn,
+    candidate_id: &Id,
+    candidate_row: entity::candidate::Model,
+) -> Result<(StatusCode, String), (StatusCode, String)> {
+    let vote_count = candidate::Entity::find_by_id(*candidate_id)
+        .find_with_related(vote::Entity)
+        //.select_only()
+        //.column(vote::Column::Id)
+        .all(conn)
+        .await
+        .iter()
+        .count();
+    dbg!(vote_count);
+    let mut candidate = CandidateResponse::from(candidate_row);
+    candidate.num_votes = vote_count;
+    let candidate: String = serde_json::to_string(&candidate).map_err(|err| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to serialize candidate {candidate_id}: {err}"),
+        )
+    })?;
+
+    Ok((StatusCode::OK, candidate))
+}
+
 pub async fn get_candidate(
     state: State<AppState>,
-    Path(id): Path<Id>,
+    Path(candidate_id): Path<Id>,
 ) -> Result<(StatusCode, String), (StatusCode, String)> {
-    let candidate_row = candidate::Entity::find_by_id(id)
+    dbg!("get candidate", &candidate_id);
+    let candidate_row = candidate::Entity::find_by_id(candidate_id)
         .one(&state.conn)
         .await
         .map_err(|err| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to get candidate {id}: {err}"),
+                format!("Failed to get candidate {candidate_id}: {err}"),
             )
         })?;
     match candidate_row {
-        Some(candidate_row) => Ok((
-            StatusCode::OK,
-            serde_json::to_string(&CandidateResponse::from(candidate_row)).unwrap(),
-        )),
+        Some(candidate_row) => construct_candidate(&state.conn, &candidate_id, candidate_row).await,
         None => Ok((StatusCode::NOT_FOUND, String::from(""))),
     }
 }
@@ -123,8 +147,9 @@ pub async fn vote(
         )
     })?;
     info!("Saved new vote {}: {}", vote_row.candidate_id, vote_row.id);
+    dbg!(&vote_row);
     Ok((
-        StatusCode::CREATED,
+        StatusCode::OK,
         serde_json::to_string(&VoteResponse::from(vote_row)).unwrap(),
     ))
 }

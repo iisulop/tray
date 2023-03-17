@@ -60,6 +60,7 @@ pub struct CandidateResponse {
     pub id: Id,
     pub url: String,
     pub poll_id: Id,
+    pub num_votes: usize,
 }
 
 impl From<candidate::Model> for CandidateResponse {
@@ -68,6 +69,7 @@ impl From<candidate::Model> for CandidateResponse {
             id: src.id,
             url: src.url,
             poll_id: src.poll_id,
+            num_votes: 0,
         }
     }
 }
