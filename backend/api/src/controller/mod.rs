@@ -4,7 +4,9 @@ use axum::extract::{ConnectInfo, Json, Path, State};
 use axum::http::StatusCode;
 use chrono::prelude::*;
 use entity::{candidate, poll, vote};
-use sea_orm::{ActiveModelTrait, DbConn, EntityTrait, Set};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, DbConn, EntityTrait, Set, QuerySelect
+};
 use tracing::info;
 
 use crate::types::{
@@ -85,20 +87,24 @@ pub async fn post_candidate(
 async fn construct_candidate(
     conn: &DbConn,
     candidate_id: &Id,
-    candidate_row: entity::candidate::Model,
 ) -> Result<(StatusCode, String), (StatusCode, String)> {
-    let vote_count = candidate::Entity::find_by_id(*candidate_id)
-        .find_with_related(vote::Entity)
-        //.select_only()
-        //.column(vote::Column::Id)
-        .all(conn)
+    let candidate_with_votes: Option<CandidateResponse> = candidate::Entity::find_by_id(*candidate_id)
+        .left_join(vote::Entity)
+        .select_only()
+        .columns([candidate::Column::Id, candidate::Column::Url, candidate::Column::PollId])
+        .column_as(vote::Column::Id.count(), "num_votes").clone()
+        .into_model::<CandidateResponse>()
+        .one(conn)
         .await
-        .iter()
-        .count();
-    dbg!(vote_count);
-    let mut candidate = CandidateResponse::from(candidate_row);
-    candidate.num_votes = vote_count;
-    let candidate: String = serde_json::to_string(&candidate).map_err(|err| {
+        .map_err(|err| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to cast votes for candidate {candidate_id}: {err}"),
+                )
+        })?;
+    dbg!(&candidate_with_votes);
+
+    let candidate: String = serde_json::to_string(&candidate_with_votes).map_err(|err| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("Failed to serialize candidate {candidate_id}: {err}"),
@@ -113,19 +119,7 @@ pub async fn get_candidate(
     Path(candidate_id): Path<Id>,
 ) -> Result<(StatusCode, String), (StatusCode, String)> {
     dbg!("get candidate", &candidate_id);
-    let candidate_row = candidate::Entity::find_by_id(candidate_id)
-        .one(&state.conn)
-        .await
-        .map_err(|err| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to get candidate {candidate_id}: {err}"),
-            )
-        })?;
-    match candidate_row {
-        Some(candidate_row) => construct_candidate(&state.conn, &candidate_id, candidate_row).await,
-        None => Ok((StatusCode::NOT_FOUND, String::from(""))),
-    }
+    construct_candidate(&state.conn, &candidate_id).await
 }
 
 pub async fn vote(

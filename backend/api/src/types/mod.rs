@@ -1,6 +1,6 @@
 use entity::{candidate, poll, vote};
 use http::header::InvalidHeaderValue;
-use sea_orm::DbConn;
+use sea_orm::{DbConn, FromQueryResult};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use url::Url;
@@ -37,6 +37,7 @@ pub struct PollResponse {
     pub id: Id,
     pub title: String,
     pub creation_time: String,
+    pub candidate_ids: Vec<Id>,
 }
 
 impl From<poll::Model> for PollResponse {
@@ -45,6 +46,7 @@ impl From<poll::Model> for PollResponse {
             id: src.id,
             title: src.title,
             creation_time: src.creation_time,
+            candidate_ids: Vec::new(),
         }
     }
 }
@@ -55,12 +57,13 @@ pub struct CandidatePost {
     pub poll_id: Id,
 }
 
+#[derive(FromQueryResult)]
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CandidateResponse {
     pub id: Id,
     pub url: String,
     pub poll_id: Id,
-    pub num_votes: usize,
+    pub num_votes: i32,
 }
 
 impl From<candidate::Model> for CandidateResponse {
@@ -91,3 +94,4 @@ impl From<vote::Model> for VoteResponse {
         }
     }
 }
+
