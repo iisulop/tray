@@ -10,24 +10,19 @@ use sea_orm::{
 use tracing::info;
 
 use crate::types::{
-    AppState, CandidatePost, CandidateResponse, Id, PollPost, PollResponse, VoteResponse,
+    AppState, CandidatePost, CandidateResponse, Id, PollPost, PollResponse, VoteResponse, BeError,
 };
 
 pub async fn post_poll(
     State(state): State<AppState>,
     Json(poll): Json<PollPost>,
-) -> Result<(StatusCode, String), (StatusCode, String)> {
+) -> Result<(StatusCode, String), BeError> {
     let poll_row = poll::ActiveModel {
         title: Set(poll.title),
         creation_time: Set(Utc::now().to_rfc3339()),
         ..Default::default()
     };
-    let poll_row: poll::Model = poll_row.insert(&state.conn).await.map_err(|err| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to save poll: {err}"),
-        )
-    })?;
+    let poll_row: poll::Model = poll_row.insert(&state.conn).await?;
     info!("Saved new poll {}: {}", poll_row.title, poll_row.id);
     println!();
     Ok((
@@ -39,16 +34,10 @@ pub async fn post_poll(
 pub async fn get_poll(
     state: State<AppState>,
     Path(poll_id): Path<Id>,
-) -> Result<(StatusCode, String), (StatusCode, String)> {
+) -> Result<(StatusCode, String), BeError> {
     let poll_row = poll::Entity::find_by_id(poll_id)
         .one(&state.conn)
-        .await
-        .map_err(|err| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to get poll {poll_id}: {err}"),
-            )
-        })?;
+        .await?;
     match poll_row {
         Some(poll_row) => Ok((
             StatusCode::OK,
@@ -61,19 +50,14 @@ pub async fn get_poll(
 pub async fn post_candidate(
     State(state): State<AppState>,
     Json(candidate): Json<CandidatePost>,
-) -> Result<(StatusCode, String), (StatusCode, String)> {
+) -> Result<(StatusCode, String), BeError> {
     let candidate_row = candidate::ActiveModel {
         url: Set(candidate.url.into()),
         poll_id: Set(candidate.poll_id),
         ..Default::default()
     };
     let candidate_row: candidate::Model =
-        candidate_row.insert(&state.conn).await.map_err(|err| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to save candidate: {err}"),
-            )
-        })?;
+        candidate_row.insert(&state.conn).await?;
     info!(
         "Saved new candidate {} - {}: {}",
         candidate_row.poll_id, candidate_row.url, candidate_row.id
@@ -87,7 +71,7 @@ pub async fn post_candidate(
 async fn construct_candidate(
     conn: &DbConn,
     candidate_id: &Id,
-) -> Result<(StatusCode, String), (StatusCode, String)> {
+) -> Result<(StatusCode, String), BeError> {
     let candidate_with_votes: Option<CandidateResponse> = candidate::Entity::find_by_id(*candidate_id)
         .left_join(vote::Entity)
         .select_only()
@@ -95,29 +79,17 @@ async fn construct_candidate(
         .column_as(vote::Column::Id.count(), "num_votes").clone()
         .into_model::<CandidateResponse>()
         .one(conn)
-        .await
-        .map_err(|err| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to cast votes for candidate {candidate_id}: {err}"),
-                )
-        })?;
+        .await?;
     dbg!(&candidate_with_votes);
 
-    let candidate: String = serde_json::to_string(&candidate_with_votes).map_err(|err| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to serialize candidate {candidate_id}: {err}"),
-        )
-    })?;
-
+    let candidate: String = serde_json::to_string(&candidate_with_votes)?;
     Ok((StatusCode::OK, candidate))
 }
 
 pub async fn get_candidate(
     state: State<AppState>,
     Path(candidate_id): Path<Id>,
-) -> Result<(StatusCode, String), (StatusCode, String)> {
+) -> Result<(StatusCode, String), BeError> {
     dbg!("get candidate", &candidate_id);
     construct_candidate(&state.conn, &candidate_id).await
 }
@@ -126,7 +98,7 @@ pub async fn vote(
     ConnectInfo(address): ConnectInfo<SocketAddr>,
     state: State<AppState>,
     Path(candidate_id): Path<Id>,
-) -> Result<(StatusCode, String), (StatusCode, String)> {
+) -> Result<(StatusCode, String), BeError> {
     info!("Voting {}", candidate_id);
     let vote_row = vote::ActiveModel {
         candidate_id: Set(candidate_id),
@@ -134,12 +106,7 @@ pub async fn vote(
         creation_time: Set(chrono::Utc::now().to_rfc3339()),
         ..Default::default()
     };
-    let vote_row: vote::Model = vote_row.insert(&state.conn).await.map_err(|err| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to save vote: {err}"),
-        )
-    })?;
+    let vote_row: vote::Model = vote_row.insert(&state.conn).await?;
     info!("Saved new vote {}: {}", vote_row.candidate_id, vote_row.id);
     dbg!(&vote_row);
     Ok((
