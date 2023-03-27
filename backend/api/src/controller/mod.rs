@@ -24,10 +24,9 @@ pub async fn post_poll(
     };
     let poll_row: poll::Model = poll_row.insert(&state.conn).await?;
     info!("Saved new poll {}: {}", poll_row.title, poll_row.id);
-    println!();
     Ok((
         StatusCode::CREATED,
-        serde_json::to_string(&PollResponse::from(poll_row)).unwrap(),
+        serde_json::to_string(&PollResponse::from(poll_row))?
     ))
 }
 
@@ -41,7 +40,7 @@ pub async fn get_poll(
     match poll_row {
         Some(poll_row) => Ok((
             StatusCode::OK,
-            serde_json::to_string(&PollResponse::from(poll_row)).unwrap(),
+            serde_json::to_string(&PollResponse::from(poll_row))?
         )),
         None => Ok((StatusCode::NOT_FOUND, String::from(""))),
     }
@@ -64,7 +63,7 @@ pub async fn post_candidate(
     );
     Ok((
         StatusCode::CREATED,
-        serde_json::to_string(&CandidateResponse::from(candidate_row)).unwrap(),
+        serde_json::to_string(&CandidateResponse::from(candidate_row))?
     ))
 }
 
@@ -111,6 +110,6 @@ pub async fn vote(
     dbg!(&vote_row);
     Ok((
         StatusCode::OK,
-        serde_json::to_string(&VoteResponse::from(vote_row)).unwrap(),
+        serde_json::to_string(&VoteResponse::from(vote_row))?,
     ))
 }
