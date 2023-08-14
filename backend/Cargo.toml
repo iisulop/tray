@@ -1,2 +1,2 @@
 [workspace]
-members = ["api", "entity", "migration"]
+members = ["api", "entity", "migration", "types"]
